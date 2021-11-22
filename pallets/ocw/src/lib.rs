@@ -32,6 +32,8 @@ pub mod pallet {
 	use sp_std::{collections::vec_deque::VecDeque, prelude::*, str};
 
 	use serde::{Deserialize, Deserializer};
+	
+	use serde_json::{json, Value};
 
 	/// Defines application identifier for crypto keys of this module.
 	///
@@ -44,11 +46,10 @@ pub mod pallet {
 	const NUM_VEC_LEN: usize = 10;
 	/// The type to sign and send transactions.
 	const UNSIGNED_TXS_PRIORITY: u64 = 100;
-
+//
 	// We are fetching information from Hacker News public API
-	const HTTP_REMOTE_REQUEST: &str = "https://hacker-news.firebaseio.com/v0/item/9129911.json";
-
-	const FETCH_TIMEOUT_PERIOD: u64 = 3000; // in milli-seconds
+	const HTTP_REMOTE_REQUEST: &str = "https://api.coincap.io/v2/assets/polkadot";
+	const FETCH_TIMEOUT_PERIOD: u64 = 4000; // in milli-seconds
 	const LOCK_TIMEOUT_EXPIRATION: u64 = FETCH_TIMEOUT_PERIOD + 1000; // in milli-seconds
 	const LOCK_BLOCK_EXPIRATION: u32 = 3; // in block number
 
@@ -86,8 +87,14 @@ pub mod pallet {
 
 	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
 	pub struct Payload<Public> {
-		number: u64,
+		price: u32,
 		public: Public,
+	}
+
+	#[derive(Deserialize, Encode, Decode, Default)]
+	pub struct Price { 
+		#[serde(deserialize_with = "de_string_to_bytes")]
+		price: Vec<u8>,	
 	}
 
 	impl<T: SigningTypes> SignedPayload<T> for Payload<T::Public> {
@@ -96,6 +103,9 @@ pub mod pallet {
 		}
 	}
 
+	
+
+	//	Get information from hackernews 
 	// ref: https://serde.rs/container-attrs.html#crate
 	#[derive(Deserialize, Encode, Decode, Default, RuntimeDebug, scale_info::TypeInfo)]
 	struct HackerNewsInfo {
@@ -104,11 +114,12 @@ pub mod pallet {
 		by: Vec<u8>,
 		#[serde(deserialize_with = "de_string_to_bytes")]
 		title: Vec<u8>,
-		#[serde(deserialize_with = "de_string_to_bytes")]
+		//#[serde(deserialize_with = "de_string_to_bytes")]
 		url: Vec<u8>,
 		descendants: u32,
 	}
 
+	//* Implement Deserializer */
 	#[derive(Debug, Deserialize, Encode, Decode, Default)]
 	struct IndexingData(Vec<u8>, u64);
 
@@ -120,6 +131,7 @@ pub mod pallet {
 		Ok(s.as_bytes().to_vec())
 	}
 
+	//* Pallet Types  */
 	#[pallet::config]
 	pub trait Config: frame_system::Config + CreateSignedTransaction<Call<Self>> {
 		/// The overarching event type.
@@ -135,17 +147,14 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	// The pallet's runtime storage items.
-	// https://substrate.dev/docs/en/knowledgebase/runtime/storage
 	#[pallet::storage]
 	#[pallet::getter(fn numbers)]
-	// Learn more about declaring storage items:
-	// https://substrate.dev/docs/en/knowledgebase/runtime/storage#declaring-storage-items
-	pub type Numbers<T> = StorageValue<_, VecDeque<u64>, ValueQuery>;
+	pub type Numbers<T> = StorageValue<_, VecDeque<u32>, ValueQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		NewNumber(Option<T::AccountId>, u64),
+		NewNumber(Option<T::AccountId>, u32),
 	}
 
 	// Errors inform users that something went wrong.
@@ -168,8 +177,10 @@ pub mod pallet {
 		HttpFetchingError,
 		DeserializeToObjError,
 		DeserializeToStrError,
+		StringToJSONerr,
+		ParseError,
 	}
-
+	//* Implement Offchain Workers */
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		/// Offchain Worker entry point.
@@ -183,22 +194,27 @@ pub mod pallet {
 		/// You can use `Local Storage` API to coordinate runs of the worker.
 		fn offchain_worker(block_number: T::BlockNumber) {
 
-			log::info!("Hello from pallet-ocw.");
+			log::info!("Hello from Offchain Worker!");
 
-			// Here we are showcasing various techniques used when running off-chain workers (ocw)
-			// 1. Sending signed transaction from ocw
-			// 2. Sending unsigned transaction from ocw
-			// 3. Sending unsigned transactions with signed payloads from ocw
-			// 4. Fetching JSON via http requests in ocw
-			const TX_TYPES: u32 = 4;
-			let modu = block_number.try_into().map_or(TX_TYPES, |bn: usize| (bn as u32) % TX_TYPES);
-			let result = match modu {
-				0 => Self::offchain_signed_tx(block_number),
-				1 => Self::offchain_unsigned_tx(block_number),
-				2 => Self::offchain_unsigned_tx_signed_payload(block_number),
-				3 => Self::fetch_remote_info(),
-				_ => Err(Error::<T>::UnknownOffchainMux),
-			};
+			//*  Here we are showcasing various techniques used when running off-chain workers (ocw) */
+			//*  1. Sending signed transaction from ocw */
+			//*  2. Sending unsigned transaction from ocw */
+			//*  3. Sending unsigned transactions with signed payloads from ocw */
+			//*  4. Fetching JSON via http requests in ocw           */
+			// const TX_TYPES: u32 = 4;
+			// let modu = block_number.try_into().map_or(TX_TYPES, |bn: usize| (bn as u32) % TX_TYPES);
+			
+			
+			// let result = match modu {
+			// 	0 => Self::offchain_signed_tx(block_number),
+			// 	1 => Self::offchain_unsigned_tx(block_number),
+			// 	2 => Self::offchain_unsigned_tx_signed_payload(block_number),
+			// 	3 => Self::fetch_remote_info(),
+			// 	_ => Err(Error::<T>::UnknownOffchainMux),
+			// };
+
+			
+			let result = Self::offchain_unsigned_tx_signed_payload(block_number);
 
 			if let Err(e) = result {
 				log::error!("offchain_worker error: {:?}", e);
@@ -206,6 +222,8 @@ pub mod pallet {
 		}
 	}
 
+
+	//* Validate Unsigned Calls To this Pallet */
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
@@ -239,12 +257,14 @@ pub mod pallet {
 		}
 	}
 
+	//* Pallet Calls */
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(10000)]
-		pub fn submit_number_signed(origin: OriginFor<T>, number: u64) -> DispatchResult {
+		pub fn submit_number_signed(origin: OriginFor<T>, number: u32) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			log::info!("submit_number_signed: ({}, {:?})", number, who);
+			//	FIFO values inside the VecDeque
 			Self::append_or_replace_number(number);
 
 			Self::deposit_event(Event::NewNumber(Some(who), number));
@@ -252,7 +272,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(10000)]
-		pub fn submit_number_unsigned(origin: OriginFor<T>, number: u64) -> DispatchResult {
+		pub fn submit_number_unsigned(origin: OriginFor<T>, number: u32) -> DispatchResult {
 			let _ = ensure_none(origin)?;
 			log::info!("submit_number_unsigned: {}", number);
 			Self::append_or_replace_number(number);
@@ -271,11 +291,11 @@ pub mod pallet {
 			let _ = ensure_none(origin)?;
 			// we don't need to verify the signature here because it has been verified in
 			//   `validate_unsigned` function when sending out the unsigned tx.
-			let Payload { number, public } = payload;
-			log::info!("submit_number_unsigned_with_signed_payload: ({}, {:?})", number, public);
-			Self::append_or_replace_number(number);
+			let Payload { price , public } = payload;
+			log::info!("submit_number_unsigned_with_signed_payload: ({}, {:?})", price, public);
+			Self::append_or_replace_number(price);
 
-			Self::deposit_event(Event::NewNumber(None, number));
+			Self::deposit_event(Event::NewNumber(None, price));
 			Ok(())
 		}
 	}
@@ -283,7 +303,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Append a new number to the tail of the list, removing an element from the head if reaching
 		///   the bounded length.
-		fn append_or_replace_number(number: u64) {
+		fn append_or_replace_number(number: u32) {
 			Numbers::<T>::mutate(|numbers| {
 				if numbers.len() == NUM_VEC_LEN {
 					let _ = numbers.pop_front();
@@ -299,7 +319,7 @@ pub mod pallet {
 		fn fetch_remote_info() -> Result<(), Error<T>> {
 			// Create a reference to Local Storage value.
 			// Since the local storage is common for all offchain workers, it's a good practice
-			// to prepend our entry with the pallet name.
+			// to prepend our entry wifth the pallet name.
 			let s_info = StorageValueRef::persistent(b"offchain-demo::hn-info");
 
 			// Local storage is persisted and shared between runs of the offchain workers,
@@ -339,6 +359,36 @@ pub mod pallet {
 				}
 			}
 			Ok(())
+		}
+
+		//	Fetch and Parse Price Struct 
+		fn parse_get_price() -> Result<Price, Error<T>> { 
+			let resp_bytes = Self::fetch_from_remote().map_err(|e| { 
+				log::error!("Parse Error: {:?}", e);
+					<Error<T>>::HttpFetchingError
+			})?;
+			//	BYTES TO JSON String  
+			let resp_str = str::from_utf8(&resp_bytes).map_err(|_| <Error<T>>::DeserializeToStrError)?;
+			// Print out our fetched JSON string
+			log::info!("Price Struct Function: {}", resp_str);
+			
+			//	Deserialising JSON to struct using serde_json 
+			let resp_json: Value = serde_json::from_str(&resp_str).map_err(|e| { 
+				log::error!("String to json error {:?}", e);
+				<Error<T>>::StringToJSONerr
+			})?;
+			//	Byte to Strung 
+			let byte_string = serde_json::to_string(&resp_json["byte"]).map_err(|e| { 
+				log::error!("String to json error {:?}", e);
+				<Error<T>>::StringToJSONerr
+				
+			})?;
+			let dot_price: Price = serde_json::from_str(&byte_string).map_err(|e| { 
+				log::error!("String to json error {:?}", e);
+				<Error<T>>::StringToJSONerr
+			})?;
+
+			Ok(dot_price)
 		}
 
 		/// Fetch from remote and deserialize the JSON to a struct
@@ -407,7 +457,7 @@ pub mod pallet {
 			let signer = Signer::<T, T::AuthorityId>::any_account();
 
 			// Translating the current block number to number and submit it on-chain
-			let number: u64 = block_number.try_into().unwrap_or(0);
+			let number = block_number.try_into().unwrap_or(0);
 
 			// `result` is in the type of `Option<(Account<T>, Result<(), ()>)>`. It is:
 			//   - `None`: no account is available for sending transaction
@@ -434,7 +484,7 @@ pub mod pallet {
 		}
 
 		fn offchain_unsigned_tx(block_number: T::BlockNumber) -> Result<(), Error<T>> {
-			let number: u64 = block_number.try_into().unwrap_or(0);
+			let number = block_number.try_into().unwrap_or(0);
 			let call = Call::submit_number_unsigned { number };
 
 			// `submit_unsigned_transaction` returns a type of `Result<(), ()>`
@@ -449,16 +499,29 @@ pub mod pallet {
 		fn offchain_unsigned_tx_signed_payload(block_number: T::BlockNumber) -> Result<(), Error<T>> {
 			// Retrieve the signer to sign the payload
 			let signer = Signer::<T, T::AuthorityId>::any_account();
+			let price = Self::parse_get_price()
+				.map_err(|e| { 
+					log::error!("Parse Error: {:?}", e);
+					<Error<T>>::HttpFetchingError
+				})?;
 
-			let number: u64 = block_number.try_into().unwrap_or(0);
+				//	Convert Price u8 to u32 
+			let priceu32 = Self::vec_conversion(price.price).map_err(|e| { 
+				log::error!("Parse Error: {:?}", e);
+				<Error<T>>::ParseError
+			})?;
 
+			Self::append_or_replace_number(priceu32);
+			
 			// `send_unsigned_transaction` is returning a type of `Option<(Account<T>, Result<(), ()>)>`.
 			//   Similar to `send_signed_transaction`, they account for:
 			//   - `None`: no account is available for sending transaction
 			//   - `Some((account, Ok(())))`: transaction is successfully sent
 			//   - `Some((account, Err(())))`: error occured when sending the transaction
 			if let Some((_, res)) = signer.send_unsigned_transaction(
-				|acct| Payload { number, public: acct.public.clone() },
+				|acct| Payload { 
+					price: priceu32, public: acct.public.clone()
+				 },
 				|payload, signature| Call::submit_number_unsigned_with_signed_payload {
 					payload, signature
 				},
@@ -473,6 +536,12 @@ pub mod pallet {
 			log::error!("No local account available");
 			Err(<Error<T>>::NoLocalAcctForSigning)
 		}
+		fn vec_conversion(val: Vec<u8>) -> Result<u32, Error<T>> { 
+			let new_val: f32 = core::str::from_utf8(&val).map_err(|_| Error::<T>::ParseError)?
+				//	Parse Vecu8 to f32
+				.parse::<f32>().map_err(|_| Error::<T>::ParseError)?;
+			Ok((new_val * 10000.) as u32)
+		}
 	}
 
 	impl<T: Config> BlockNumberProvider for Pallet<T> {
@@ -483,3 +552,4 @@ pub mod pallet {
 		}
 	}
 }
+
